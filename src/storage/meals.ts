@@ -1,18 +1,7 @@
 
-import { db } from '@/lib/firebase';
+import { API_URL } from '@/lib/api';
 import { auth } from '@/lib/firebaseAuth';
 import { signInAnonymously } from 'firebase/auth';
-
-import {
-  addDoc,
-  collection,
-  deleteDoc,
-  doc,
-  getDocs,
-  orderBy,
-  query,
-  writeBatch,
-} from 'firebase/firestore';
 
 export type Meal = {
   id: string;
@@ -27,17 +16,18 @@ export type Meal = {
 // Prevent multiple simultaneous anonymous sign-in requests.
 let signInPromise: Promise<string> | null = null;
 
-const getUserId = async (): Promise<string> => {
-  // Wait until Firebase has restored any saved login session.
+const getUserIdToken = async (): Promise<string> => {
   await auth.authStateReady();
 
   if (auth.currentUser) {
-    return auth.currentUser.uid;
+    return auth.currentUser.getIdToken();
   }
 
   if (!signInPromise) {
     signInPromise = signInAnonymously(auth)
-      .then((credential) => credential.user.uid)
+      .then(async (credential) => {
+        return credential.user.getIdToken();
+      })
       .finally(() => {
         signInPromise = null;
       });
@@ -46,69 +36,66 @@ const getUserId = async (): Promise<string> => {
   return signInPromise;
 };
 
-// Get the current user's private meals collection.
-const getMealsCollection = async () => {
-  const userId = await getUserId();
+// Send authenticated requests to the MacroZone API.
+const apiRequest = async <T>(
+  endpoint: string,
+  options: RequestInit = {},
+): Promise<T> => {
+  const token = await getUserIdToken();
 
-  return collection(db, 'users', userId, 'meals');
+  const response = await fetch(`${API_URL}${endpoint}`, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+      ...options.headers,
+    },
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.message || 'Something went wrong.');
+  }
+
+  return data as T;
 };
 
 // READ: Get all meals, newest first.
 export const getMeals = async (): Promise<Meal[]> => {
-  const mealsRef = await getMealsCollection();
+  const data = await apiRequest<{
+    success: boolean;
+    meals: Meal[];
+  }>('/api/meals');
 
-  const mealsQuery = query(
-    mealsRef,
-    orderBy('createdAt', 'desc'),
-  );
-
-  const snapshot = await getDocs(mealsQuery);
-
-  return snapshot.docs.map((mealDoc) => ({
-    id: mealDoc.id,
-    ...mealDoc.data(),
-  })) as Meal[];
+  return data.meals;
 };
 
-// CREATE: Add a meal to Firestore.
+// CREATE: Add a meal.
 export const addMeal = async (
   meal: Omit<Meal, 'id' | 'createdAt'>,
 ): Promise<Meal> => {
-  const mealsRef = await getMealsCollection();
+  const data = await apiRequest<{
+    success: boolean;
+    meal: Meal;
+  }>('/api/meals', {
+    method: 'POST',
+    body: JSON.stringify(meal),
+  });
 
-  const newMeal = {
-    ...meal,
-    createdAt: new Date().toISOString(),
-  };
-
-  const docRef = await addDoc(mealsRef, newMeal);
-
-  return {
-    id: docRef.id,
-    ...newMeal,
-  };
+  return data.meal;
 };
 
 // DELETE: Remove one meal.
 export const deleteMeal = async (id: string): Promise<void> => {
-  const mealsRef = await getMealsCollection();
-
-  await deleteDoc(doc(mealsRef, id));
+  await apiRequest(`/api/meals/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  });
 };
 
-// DELETE: Remove all meals belonging to the current user.
+// DELETE: Remove all meals.
 export const clearAllMeals = async (): Promise<void> => {
-  const mealsRef = await getMealsCollection();
-  const snapshot = await getDocs(mealsRef);
-
-  for (let start = 0; start < snapshot.docs.length; start += 500) {
-    const batch = writeBatch(db);
-    const chunk = snapshot.docs.slice(start, start + 500);
-
-    chunk.forEach((mealDoc) => {
-      batch.delete(mealDoc.ref);
-    });
-
-    await batch.commit();
-  }
+  await apiRequest('/api/meals', {
+    method: 'DELETE',
+  });
 };

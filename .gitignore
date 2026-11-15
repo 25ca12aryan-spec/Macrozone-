@@ -41,3 +41,10 @@ example
 # generated native folders
 /ios
 /android
+
+# MacroZone backend security
+backend/node_modules/
+backend/dist/
+backend/.env
+backend/.env.*
+backend/serviceAccountKey.json

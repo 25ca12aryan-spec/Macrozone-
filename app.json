@@ -25,20 +25,29 @@
       "package": "com.aryangaonkar1207steam.macrozone"
     },
     "web": {
-      "output": "server",
+      "output": "static",
       "favicon": "./assets/images/favicon.png"
     },
     "plugins": [
-      "expo-router",
-      [
-        "expo-splash-screen",
-        {
-          "backgroundColor": "#208AEF",
-          "image": "./assets/images/splash-icon.png",
-          "imageWidth": 76
-        }
-      ]
-    ],
+  "expo-router",
+  [
+    "expo-splash-screen",
+    {
+      "image": "./assets/images/splash-icon.png",
+      "imageWidth": 76,
+      "resizeMode": "contain",
+      "backgroundColor": "#208AEF"
+    }
+  ],
+  [
+    "expo-build-properties",
+    {
+      "android": {
+        "usesCleartextTraffic": true
+      }
+    }
+  ]
+],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
